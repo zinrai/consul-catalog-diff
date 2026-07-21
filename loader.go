@@ -31,6 +31,8 @@ func loadOperations(filename string) ([]Operation, error) {
 	switch format {
 	case NDJSONTransactionFormat:
 		return parseNDJSON(data)
+	case NDJSONBatchFormat:
+		return parseBatchNDJSON(data)
 	case JSONTransactionArrayFormat:
 		return parseTransactionArrayJSON(data)
 	case JSONCatalogNodeFormat, JSONCatalogServiceFormat:
@@ -51,12 +53,21 @@ func detectFormat(data []byte) FormatType {
 	return detectSingleJSONFormat(data)
 }
 
-// detectNDJSONFormat checks if data is in NDJSON format
+// detectNDJSONFormat checks if data is newline-delimited JSON objects.
+// Two line shapes are recognised:
+//   - batch envelopes {"batch":N,"operations":[...]} (consul-catalog-sync -payload)
+//   - bare operations  {"Node":{"Verb":...}} / {"Service":{"Verb":...}}
+//
+// A leading '[' means a JSON array, which single-JSON detection handles instead.
 func detectNDJSONFormat(data []byte) FormatType {
-	lines := bytes.Split(bytes.TrimSpace(data), []byte("\n"))
-	if len(lines) <= 1 {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) == 0 || trimmed[0] == '[' {
 		return UnknownFormat
 	}
+
+	lines := bytes.Split(trimmed, []byte("\n"))
+	sawBatch := false
+	sawOperation := false
 
 	for _, line := range lines {
 		if len(bytes.TrimSpace(line)) == 0 {
@@ -68,12 +79,31 @@ func detectNDJSONFormat(data []byte) FormatType {
 			return UnknownFormat
 		}
 
-		if containsVerb(obj) {
-			return NDJSONTransactionFormat
+		switch {
+		case hasOperationsArray(obj):
+			sawBatch = true
+		case containsVerb(obj):
+			sawOperation = true
+		default:
+			return UnknownFormat
 		}
 	}
 
-	return UnknownFormat
+	switch {
+	case sawBatch && !sawOperation:
+		return NDJSONBatchFormat
+	case sawOperation && !sawBatch:
+		return NDJSONTransactionFormat
+	default:
+		return UnknownFormat
+	}
+}
+
+// hasOperationsArray reports whether obj is a batch envelope carrying an
+// "operations" array (the per-batch object consul-catalog-sync -payload emits).
+func hasOperationsArray(obj map[string]interface{}) bool {
+	_, ok := obj["operations"].([]interface{})
+	return ok
 }
 
 // detectSingleJSONFormat checks single JSON format
@@ -159,6 +189,39 @@ func parseNDJSON(data []byte) ([]Operation, error) {
 	return operations, nil
 }
 
+// parseBatchNDJSON flattens batch-enveloped NDJSON, where each line is a
+// {"operations":[...]} object as written by consul-catalog-sync -payload.
+func parseBatchNDJSON(data []byte) ([]Operation, error) {
+	var operations []Operation
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	// A batch line carries up to 64 operations, so raise the line limit
+	// well above bufio's default 64 KiB token size.
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024)
+
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+
+		var batch struct {
+			Operations []Operation `json:"operations"`
+		}
+		if err := json.Unmarshal(line, &batch); err != nil {
+			return nil, fmt.Errorf("failed to parse batch line %d: %w", lineNum, err)
+		}
+		operations = append(operations, batch.Operations...)
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("failed to read batch NDJSON: %w", err)
+	}
+
+	return operations, nil
+}
+
 // parseTransactionArrayJSON parses JSON array of transaction operations
 func parseTransactionArrayJSON(data []byte) ([]Operation, error) {
 	var operations []Operation
@@ -187,6 +250,8 @@ func formatString(format FormatType) string {
 	switch format {
 	case NDJSONTransactionFormat:
 		return "NDJSON Transaction format"
+	case NDJSONBatchFormat:
+		return "NDJSON batch format"
 	case JSONTransactionArrayFormat:
 		return "JSON Transaction Array format"
 	case JSONCatalogNodeFormat:

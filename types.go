@@ -98,6 +98,7 @@ type FormatType int
 const (
 	UnknownFormat FormatType = iota
 	NDJSONTransactionFormat
+	NDJSONBatchFormat
 	JSONTransactionArrayFormat
 	JSONCatalogNodeFormat
 	JSONCatalogServiceFormat

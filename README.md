@@ -48,6 +48,16 @@ $ consul-catalog-diff -file operations.json -consul-addr http://consul:8500
 
 The tool automatically detects the following formats:
 
+### NDJSON batch format
+
+The direct output of `consul-catalog-sync -payload`: one batch envelope per line, each carrying an `operations` array. Operations are flattened across all batches.
+
+```json
+{"batch":1,"operations":[{"Node":{"Verb":"set","Node":{"Node":"web-001","Address":"10.0.0.1"}}},{"Service":{"Verb":"set","Node":"web-001","Service":{"ID":"nginx","Port":80}}}]}
+```
+
+This lets the two tools be chained directly: `consul-catalog-diff -file <(consul-catalog-sync -payload)`.
+
 ### NDJSON Transaction format
 
 Each line is a complete JSON object representing a single operation:

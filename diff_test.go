@@ -25,6 +25,16 @@ func TestDetectFormat(t *testing.T) {
 			expected: JSONTransactionArrayFormat,
 		},
 		{
+			name:     "NDJSON batch format (consul-catalog-sync -payload)",
+			input:    `{"batch":1,"operations":[{"Node":{"Verb":"set","Node":{"Node":"web-001","Address":"10.0.0.1"}}},{"Service":{"Verb":"set","Node":"web-001","Service":{"ID":"nginx","Port":80}}}]}`,
+			expected: NDJSONBatchFormat,
+		},
+		{
+			name:     "Single-line NDJSON operation",
+			input:    `{"Node":{"Verb":"set","Node":{"Node":"web-001","Address":"10.0.0.1"}}}`,
+			expected: NDJSONTransactionFormat,
+		},
+		{
 			name:     "Empty input",
 			input:    "",
 			expected: UnknownFormat,
@@ -203,5 +213,24 @@ func TestParseNDJSON(t *testing.T) {
 	// Check second operation is Service
 	if ops[1].Service == nil {
 		t.Error("Second operation should be a Service operation")
+	}
+}
+
+func TestParseBatchNDJSON(t *testing.T) {
+	// Two batch lines, mirroring consul-catalog-sync -payload output.
+	input := `{"batch":1,"operations":[{"Node":{"Verb":"set","Node":{"Node":"web-001","Address":"10.0.0.1"}}},{"Service":{"Verb":"set","Node":"web-001","Service":{"ID":"nginx","Port":80}}}]}
+{"batch":2,"operations":[{"Node":{"Verb":"set","Node":{"Node":"web-002","Address":"10.0.0.2"}}}]}`
+
+	ops, err := parseBatchNDJSON([]byte(input))
+	if err != nil {
+		t.Fatalf("parseBatchNDJSON() error = %v", err)
+	}
+
+	if len(ops) != 3 {
+		t.Errorf("parseBatchNDJSON() returned %d operations, want 3", len(ops))
+	}
+
+	if ops[0].Node == nil || ops[1].Service == nil || ops[2].Node == nil {
+		t.Error("operations were not flattened in order across batches")
 	}
 }
