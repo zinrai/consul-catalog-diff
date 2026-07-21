@@ -14,43 +14,31 @@ type Config struct {
 
 func parseConfig() Config {
 	var config Config
+	var showVersion bool
+
+	flag.Usage = showUsage
 
 	flag.StringVar(&config.File, "file", "", "JSON/NDJSON file containing expected operations (required)")
 	flag.StringVar(&config.ConsulAddr, "consul-addr", "http://127.0.0.1:8500", "Consul HTTP address")
-
-	// Handle special flags before parsing
-	if handleSpecialFlags() {
-		os.Exit(0)
-	}
+	flag.BoolVar(&showVersion, "version", false, "show version")
 
 	flag.Parse()
+
+	if showVersion {
+		fmt.Printf("%s version %s\n", binaryName, version)
+		fmt.Printf("commit: %s\n", commit)
+		fmt.Printf("date: %s\n", date)
+		os.Exit(0)
+	}
 
 	// Validate required flags
 	if config.File == "" {
 		fmt.Fprintf(os.Stderr, "Error: -file flag is required\n\n")
-		showUsage()
+		flag.Usage()
 		os.Exit(2)
 	}
 
 	return config
-}
-
-// handleSpecialFlags handles version and help flags
-func handleSpecialFlags() bool {
-	if len(os.Args) <= 1 {
-		return false
-	}
-
-	switch os.Args[1] {
-	case "-version", "--version":
-		fmt.Printf("%s version %s\n", binaryName, version)
-		return true
-	case "-help", "--help", "-h":
-		showUsage()
-		return true
-	}
-
-	return false
 }
 
 func showUsage() {
