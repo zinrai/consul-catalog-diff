@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -73,7 +74,7 @@ func fetchAllNodes(client *http.Client, consulAddr string) (map[string]ConsulNod
 		return nil, fmt.Errorf("invalid consul address: %w", err)
 	}
 
-	resp, err := client.Get(u.String())
+	resp, err := consulGet(client, u.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch nodes: %w", err)
 	}
@@ -108,7 +109,7 @@ func fetchNodeServices(client *http.Client, consulAddr, nodeName string) ([]Cons
 		return nil, fmt.Errorf("invalid consul address: %w", err)
 	}
 
-	resp, err := client.Get(u.String())
+	resp, err := consulGet(client, u.String())
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch node services: %w", err)
 	}
@@ -142,6 +143,19 @@ func fetchNodeServices(client *http.Client, consulAddr, nodeName string) ([]Cons
 	}
 
 	return services, nil
+}
+
+// consulGet issues a GET request, attaching the ACL token from
+// CONSUL_HTTP_TOKEN when set (env only, never a flag, to keep it out of argv).
+func consulGet(client *http.Client, rawURL string) (*http.Response, error) {
+	req, err := http.NewRequest("GET", rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if token := os.Getenv("CONSUL_HTTP_TOKEN"); token != "" {
+		req.Header.Set("X-Consul-Token", token)
+	}
+	return client.Do(req)
 }
 
 // getNodeFromServiceKey extracts node name from service key

@@ -44,6 +44,14 @@ $ consul-catalog-diff -file operations.json -consul-addr http://consul:8500
 - `1`: Differences found
 - `2`: Error occurred
 
+## Authentication
+
+The token is read from the `CONSUL_HTTP_TOKEN` environment variable, following the `consul` CLI convention, rather than a flag so it does not leak into process listings or shell history. It needs `node:read` and `service:read` on a cluster that enforces ACLs.
+
+```bash
+$ CONSUL_HTTP_TOKEN=<token> consul-catalog-diff -file operations.json
+```
+
 ## Input formats
 
 The tool automatically detects the following formats:
