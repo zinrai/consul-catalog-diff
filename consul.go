@@ -25,18 +25,21 @@ func fetchConsulState(consulAddr string, operations []Operation) (*ConsulState, 
 	// Group operations by target to minimize API calls
 	nodeOps, serviceOps := groupOperationsByTarget(operations)
 
-	// Fetch nodes that are referenced in operations
+	// Fetch the whole node catalog once and index it, then look up only the
+	// nodes referenced by the input. Fetching per node would re-download the
+	// full list for every referenced node.
+	catalog, err := fetchAllNodes(client, consulAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch nodes: %w", err)
+	}
+
 	for nodeName := range nodeOps {
-		log.Printf("[INFO] Fetching node: %s", nodeName)
-		node, err := fetchNode(client, consulAddr, nodeName)
-		if err != nil {
-			if isNotFoundError(err) {
-				log.Printf("[INFO] Node %s not found in Consul", nodeName)
-				continue
-			}
-			return nil, fmt.Errorf("failed to fetch node %s: %w", nodeName, err)
+		node, ok := catalog[nodeName]
+		if !ok {
+			log.Printf("[INFO] Node %s not found in Consul", nodeName)
+			continue
 		}
-		state.Nodes[nodeName] = *node
+		state.Nodes[nodeName] = node
 	}
 
 	// Fetch services that are referenced in operations
@@ -63,9 +66,8 @@ func fetchConsulState(consulAddr string, operations []Operation) (*ConsulState, 
 	return state, nil
 }
 
-// fetchNode fetches a single node from Consul
-func fetchNode(client *http.Client, consulAddr, nodeName string) (*ConsulNode, error) {
-	// First, try to get the node from the nodes list
+// fetchAllNodes fetches the full node catalog once and returns it keyed by node name.
+func fetchAllNodes(client *http.Client, consulAddr string) (map[string]ConsulNode, error) {
 	u, err := url.Parse(fmt.Sprintf("%s/v1/catalog/nodes", consulAddr))
 	if err != nil {
 		return nil, fmt.Errorf("invalid consul address: %w", err)
@@ -91,14 +93,12 @@ func fetchNode(client *http.Client, consulAddr, nodeName string) (*ConsulNode, e
 		return nil, fmt.Errorf("failed to parse nodes: %w", err)
 	}
 
-	// Find the specific node
+	catalog := make(map[string]ConsulNode, len(nodes))
 	for _, node := range nodes {
-		if node.Node == nodeName {
-			return &node, nil
-		}
+		catalog[node.Node] = node
 	}
 
-	return nil, &notFoundError{resource: "node", name: nodeName}
+	return catalog, nil
 }
 
 // fetchNodeServices fetches services for a specific node
