@@ -19,12 +19,6 @@ A tool to detect differences between Transaction API formatted JSON operations a
 
 Elements that exist only in Consul (e.g., registered by Nomad) are ignored.
 
-## Installation
-
-```bash
-$ go install github.com/example/consul-catalog-diff@latest
-```
-
 ## Usage
 
 ```bash
